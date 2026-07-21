@@ -6,6 +6,13 @@
 \usepackage{booktabs}
 \usepackage{url}
 \usepackage{cite}
+\usepackage{xcolor}
+
+% Visible marker for methodological points flagged for PI review while
+% drafting. Every \flag{} should be resolved (fixed, or deliberately
+% accepted and reworded into normal prose) before submission -- search
+% for "\flag{" to find them all.
+\newcommand{\flag}[1]{\textcolor{red}{\textbf{[FLAG --- please review: #1]}}}
 
 \begin{document}
 
@@ -80,6 +87,107 @@ Hardware considerations in this research programme have so far been additive rat
 Taken together, the literature above establishes a mechanistic model that is trusted, a risk metric that is actively being refined, and a solver ecosystem that is mature and widely adopted, but it leaves two questions unanswered where those three pieces meet. First, whether the numerical configuration used to solve the model, a choice made silently in most published assays, can itself change a torsadogenic risk classification. Second, whether the resulting workload, once a defensible configuration is fixed, is affordable enough on ARM hardware to extend credible screening capability to labs that cannot presently perform it. This paper answers both questions using the same ORd/CiPA modeling foundation as the authors' prior work, so that its findings integrate directly into that existing line of research rather than standing apart from it.
 
 \section{Methodology}
+
+\subsection{Cell Model and Pharmacology Representation}
+
+All configurations compared in this study share the same underlying simulation: the O'Hara--Rudy (ORd) human ventricular action potential model \cite{ohara2011}, run as a single, isolated cell (a 0-D system) paced at a fixed cycle length rather than embedded in a spatial tissue model. Restricting the comparison to the 0-D case is deliberate: it removes any spatial discretization scheme from the picture, so that whatever accuracy and runtime differences the later sections report can be attributed to time integration of the ODE system alone, not to a spatial solver.
+
+\flag{Confirm the pacing protocol: cycle length, number of paced beats run in before biomarkers are extracted, and the criterion used to decide the cell has reached (quasi-)steady state. Run-in length materially affects APD90 and qNet in ORd-class models and is not yet specified anywhere in the locked methodology.}
+
+Each drug in the stratified subset is applied to the model as a multichannel conductance modification.
+
+\flag{The locked methodology does not state which pharmacology representation is used: a static, Hill-equation-style scaling of maximal conductance per channel (IC50/Hill coefficient), or the dynamic hERG drug-binding/trapping kinetics introduced for CiPA \cite{li2017}, which adds its own state variables and its own stiffness to the system. This is not a cosmetic choice --- it changes what ``the model'' is before any solver is ever applied to it, and it should be fixed and stated explicitly before Phase 1 runs begin.}
+
+\subsection{Biomarker Definitions}
+
+Consistent with the CiPA framework, the principal endpoint is qNet, the net charge carried by the inward late sodium and L-type calcium currents relative to the outward potassium currents over one paced cycle, used as the quantitative torsadogenic risk score \cite{li2017}. Supporting biomarkers, action potential duration at 90\% repolarization (APD90), maximum upstroke velocity ($dV_m/dt_{\max}$), calcium transient (CaT) amplitude, and triangulation, are logged alongside qNet for every run (Section~\ref{sec:logging}). They matter beyond their own informativeness: they let later analysis distinguish a solver configuration that merely drifts on a secondary biomarker from one that drifts specifically on qNet, the biomarker that drives classification.
+
+\flag{The exact risk-tier cutoffs applied to qNet are not yet fixed. Will this study apply the original fixed qNet thresholds \cite{li2017}, or the ordinal-logistic-regression classifier from the authors' own prior work \cite{kamanditya2024}? The two can disagree near tier boundaries, and the choice directly determines what counts as a ``classification flip,'' which is this paper's headline outcome.}
+
+\subsection{Drug Selection and Risk Stratification}
+\label{sec:drugs}
+
+A stratified sample of six to eight drugs, spanning the high, intermediate, and low torsadogenic risk tiers, is used throughout Phases 1--3 in place of the full CiPA panel (Table~\ref{tab:drugs}).
+
+\flag{With only six to eight drugs split across three tiers, some tiers may be represented by as few as two compounds. A single borderline drug can then decide whether a tier ``held'' or ``flipped'' under a coarser configuration, which is a thin evidential base for the paper's central claim. Worth deciding now whether the subset should be weighted toward drugs already known to sit close to a classification boundary, where a flip is plausible and informative, rather than spread evenly across tiers, or whether the paper should explicitly frame the flip-point finding as illustrative rather than exhaustive.}
+
+\begin{table}[!t]
+\centering
+\caption{Stratified drug subset and torsadogenic risk tier. \emph{[TBD --- final list and tier assignments pending; open item \#1, handoff Sec.~12.]}}
+\label{tab:drugs}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Drug & Risk tier & Source / rationale \\
+\midrule
+TBD & High & TBD \\
+TBD & High & TBD \\
+TBD & Intermediate & TBD \\
+TBD & Intermediate & TBD \\
+TBD & Low & TBD \\
+TBD & Low & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Phase 1: Ground-Truth Reference}
+
+The reference solution for each drug in the stratified subset is generated with explicit Euler integration at a very fine, fixed time step $\Delta t_{\text{ref}}$ [TBD --- exact value; open item \#2, handoff Sec.~12], chosen so that no adaptive step-size logic sits between the model and the reported traces.
+
+\flag{Explicit Euler is transparent, but it is only first-order accurate, and the ORd system is stiff (Sec.~II-C): a step that is merely ``very fine'' is not automatically inside the accuracy-\emph{and}-stability regime for every drug in the subset, since conductance-blocking drugs can themselves shift the system's stiffness. Right now the ground truth's trustworthiness rests on $\Delta t_{\text{ref}}$ being ``small enough'' by inspection. A cheap, standard safeguard would strengthen this considerably: halve $\Delta t_{\text{ref}}$ once more (or cross-check against a high-order/adaptive solver run at a very tight tolerance) and confirm the reported biomarkers do not move outside the error tolerance later used to judge Phase 2 configurations. Without that check, a reviewer can reasonably ask how ``gold standard'' was verified rather than assumed.}
+
+\subsection{Phase 2: Solver Comparison}
+
+The same drug subset is re-solved under two faster configurations and compared against the Phase 1 reference: (i) CVODE, the adaptive, implicit multistep solver from the SUNDIALS suite \cite{hindmarsh2005}, and (ii) explicit Euler at a sweep of coarser step sizes, $\Delta t \in \{$[TBD --- sweep range; open item \#2]$\}$. For each configuration, every biomarker in Section~III-B is compared against its Phase 1 counterpart (absolute and relative error), and the resulting risk-tier classification is compared against the ground-truth classification. The step size, or CVODE tolerance, at which a drug's classification first disagrees with ground truth is the paper's central result.
+
+\flag{Two implementation details are currently unspecified, and either could bias the comparison if left implicit. First, CVODE's relative and absolute tolerances are not stated: a loosely toleranced CVODE run will show larger errors than practitioners typically accept in production use, which would make the adaptive solver look worse than it is in practice; tolerances should be fixed to values the field would recognize as standard, and reported explicitly. Second, the runtime comparison between Euler and CVODE is only informative about solver algorithms if both are implemented with comparable care in the same language and calling convention. If CVODE is reached through a high-level binding (e.g., Assimulo, scikit-sundials) while Euler runs as compiled C or Cython, part of any timing difference will be binding overhead rather than solver cost. The paper should state which CVODE binding is used (open item \#3, handoff Sec.~12) and confirm Euler is implemented at a comparable level.}
+
+\subsection{Phase 3: Hardware Portability}
+
+The solver configuration validated in Phase 2 is deployed, unchanged, across four platform classes (Table~\ref{tab:hardware}): a consumer-grade x86 CPU, the same x86 class with a discrete GPU, a local Apple Silicon (ARM) machine, and a Graviton-class ARM cloud instance. For each platform the study records wall-clock time, peak memory, agreement of the computed biomarkers with the reference, and, for the cloud platform, cost per completed drug simulation.
+
+\begin{table}[!t]
+\centering
+\caption{Hardware platform specifications. \emph{[TBD --- pending; open item \#4, handoff Sec.~12.]}}
+\label{tab:hardware}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\# & Platform & Spec (CPU/GPU, RAM, OS) \\
+\midrule
+1 & x86 CPU & TBD \\
+2 & x86 + discrete GPU & TBD \\
+3 & ARM local (Apple Silicon) & TBD \\
+4 & ARM cloud & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\flag{Three open questions here are substantive enough to affect the headline hardware claim, not just its presentation. First, the handoff's own Sec.~4 lists the GPU platform as one of four in Phase 3, but Sec.~12 (open item \#5) separately asks whether the GPU path is in scope ``as a fifth platform or excluded''---these two statements do not agree, and Table~\ref{tab:hardware} cannot be finalized until that is resolved. Second, ``numerical result agreement'' across platforms needs a stated tolerance: different CPU architectures, compilers, and math libraries do not guarantee bit-identical floating-point results even running the identical solver at the identical step size, and GPU code paths in particular often default to single precision for throughput. If the GPU or ARM path runs at a different floating-point precision than the x86 reference, precision, not hardware, would be doing the work in any observed discrepancy, and that needs to be controlled or at least reported. Third, is the GPU platform running the same validated solver/step configuration as the other three, or the separately maintained CardioSim GPU implementation \cite{aroli2024}? If the latter, cross-platform comparisons are confounded with cross-implementation differences, and the paper should say so plainly rather than imply a clean hardware-only comparison.}
+
+\flag{Cloud cost-per-simulation depends entirely on assumptions not yet fixed: instance type and size, on-demand versus spot/preemptible pricing, region, and whether idle or provisioning time is amortized into the figure. These should be stated as explicit assumptions in Results, since the cost number is, per the handoff, the figure that elevates this study from a benchmark to an argument, and an unstated pricing model would undercut that.}
+
+\subsection{Metrics and Logging Schema}
+\label{sec:logging}
+
+Every run, regardless of drug, solver, or platform, is logged as a single structured record capturing the run and drug identifiers, the risk tier under test, the solver and time step, the platform and its specification, wall-clock time, peak memory, the full biomarker vector (Section~III-B), the absolute and relative error of each biomarker against the Phase 1 reference, the predicted risk classification, and a Boolean flag for whether that classification matches ground truth. The last two fields are the paper's headline; everything else is supporting evidence for them.
+
+\subsection{Scope and Exclusions}
+
+Full-panel fine-step ground truth, Phase 1 applied beyond the stratified subset, was ruled out on runtime grounds and is left, time permitting, as an optional Phase 4 extension rather than part of the core claim. The comparison is confined throughout to a single cell model (ORd), a single risk-scoring framework (CiPA/qNet), and the stratified drug subset of Section~III-C; Section~V returns to what that scope does, and does not, license the paper to claim.
+
+\subsection*{Summary of Flagged Items for PI Review}
+
+\begin{enumerate}
+\item Pacing protocol (cycle length, run-in beats, steady-state criterion) is undefined.
+\item Pharmacology representation (static Hill-equation block vs.\ dynamic hERG-binding kinetics) is undefined.
+\item Risk-classification rule applied to qNet (fixed CiPA thresholds vs.\ the OLR classifier \cite{kamanditya2024}) is undefined.
+\item The stratified subset may be too thin (as few as two drugs per tier) to support the classification-flip claim robustly; consider weighting it toward boundary-adjacent drugs.
+\item The ground-truth Euler step has no stated convergence check; a step-halving or independent high-order cross-check is recommended before treating it as gold standard.
+\item CVODE tolerance settings and solver/Euler implementation parity (binding vs.\ compiled code) are unspecified and could bias the runtime comparison.
+\item Handoff Sec.~4 and Sec.~12 disagree on whether the GPU platform is one of four platforms or a fifth --- needs resolving.
+\item Cross-platform floating-point precision, especially on GPU, is not pinned down and could confound ``hardware'' results with precision effects.
+\item It is unclear whether the GPU platform reuses the separately maintained CardioSim GPU codebase \cite{aroli2024} or runs the same validated solver as the other three platforms.
+\item Cloud cost-per-simulation methodology (instance type, pricing model, region, idle-time amortization) is unstated.
+\end{enumerate}
 
 \section{Result and Discussion}
 [TBA]
