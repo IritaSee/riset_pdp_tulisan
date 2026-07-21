@@ -1,0 +1,124 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{cite}
+
+\begin{document}
+
+\title{Solver Fidelity and Hardware Portability in CiPA-Based In-Silico\\
+Cardiotoxicity Screening: A Speed--Accuracy--Cost Trade-off Study}
+
+% TODO (open item #7, Sec. 12 of handoff): confirm final author list and order with Iga before submission.
+\author{Iga~Narendra~Pramawijaya,~\IEEEmembership{et al.}
+\thanks{I. N. Pramawijaya is with the Department of Electrical Engineering, Telkom University (Universitas Telkom), Bandung, Indonesia. Corresponding author e-mail: [TBD].}
+\thanks{Manuscript draft prepared 21 July 2026. Computational results pending; see inline placeholders.}}
+
+\markboth{Journal Draft --- Not Yet Submitted}{Pramawijaya \MakeLowercase{\textit{et al.}}: Solver Fidelity and Hardware Portability in CiPA-Based In-Silico Cardiotoxicity Screening}
+
+\maketitle
+
+\begin{abstract}
+Regulatory-adjacent in-silico cardiotoxicity screening under the Comprehensive in vitro Proarrhythmia Assay (CiPA) framework rests on numerically integrating a stiff ordinary differential equation (ODE) model of the human ventricular myocyte, yet published assays rarely report, or justify, the solver and time-step configuration used to produce their risk classifications. This paper quantifies that gap directly. Using a stratified subset of CiPA drugs spanning the high, intermediate, and low torsadogenic risk tiers, we generate a fine-step explicit-Euler reference solution and compare it against the CVODE adaptive solver and a sweep of coarser Euler step sizes, asking not only how far the simulated biomarkers drift but at what configuration the resulting risk classification itself changes. We then deploy the validated configuration across four hardware classes, consumer x86 CPU, x86 with discrete GPU, local Apple Silicon (ARM), and ARM cloud, reporting wall-clock time, peak memory, and, for the cloud platform, cost per completed drug simulation. [TBD: headline accuracy and runtime figures once experiments conclude.] Results indicate [TBD: summary of the accuracy cliff and the platform-cost finding]. We conclude with a concrete, citable configuration recommendation intended to make credible torsadogenic risk screening tractable for resource-constrained research groups, including those without access to dedicated high-performance computing.
+\end{abstract}
+
+\begin{IEEEkeywords}
+CiPA, torsadogenic risk, O'Hara--Rudy model, cardiac electrophysiology, ODE solver, numerical reproducibility, CVODE, ARM computing, low-cost computing, cardiotoxicity screening.
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Drug-induced Torsade de Pointes (TdP) is a life-threatening ventricular arrhythmia, and the risk of triggering it has driven the withdrawal or restriction of numerous marketed compounds. For roughly two decades, preclinical cardiac safety screening leaned almost entirely on one assay: block of the human Ether-\`a-go-go-Related Gene (hERG) potassium channel, used as a proxy for QT-interval prolongation and, by extension, for torsadogenic risk. The proxy is conservative to the point of being expensive to the pipeline; compounds with genuine therapeutic value have been shelved for blocking hERG in vitro despite carrying negligible arrhythmic risk in practice. The Comprehensive in vitro Proarrhythmia Assay (CiPA) initiative was formed to correct that imbalance. It replaces single-channel screening with a multichannel pharmacology profile fed into a mechanistic in-silico model of the human ventricular myocyte, from which a net-charge biomarker, qNet, yields a quantitative and mechanistically grounded torsadogenic risk score \cite{li2017}. The myocyte model at the center of this pipeline is almost always some variant of the O'Hara--Rudy (ORd) human ventricular action potential model, built from and validated against recordings taken from more than one hundred undiseased human hearts \cite{ohara2011}.
+
+What the CiPA in-silico arm does not specify, and what the surrounding literature has largely left unexamined, is how that model is actually solved. The ORd formulation is a stiff system of ordinary differential equations: gating variables snap open and closed on a microsecond time scale while calcium transients unfold over hundreds of milliseconds, and ionic currents in between span several further orders of magnitude. Two broad integration strategies handle this stiffness in practice. Adaptive, implicit multistep solvers such as CVODE, part of the SUNDIALS suite \cite{hindmarsh2005}, adjust their internal step size automatically to hold local error within a set tolerance, and they are the de facto production choice across most cardiac electrophysiology pipelines, including the authors' own. The alternative, explicit Euler integration at a small fixed step, is slower and considerably less forgiving of stiffness, but it is also transparent: nothing adaptive sits between the model and the output, which makes it a natural reference standard against which faster configurations can be checked. Published CiPA-based risk assessments rarely state which of these paths was taken, coarse or fine, adaptive or fixed, and rarer still do they ask whether the choice can flip which risk tier a drug is assigned to. That is an open reproducibility question: if a compound's classification moves from intermediate to high risk merely because a coarser step was used to save runtime, the numerical configuration has become a hidden variable in a decision that is meant to inform regulatory judgment.
+
+A second, more practical question follows from the first. If a numerically defensible configuration also turns out to be inexpensive to run, in-silico torsadogenic screening stops being something only labs with dedicated compute clusters or GPU nodes can perform credibly. Commodity ARM hardware, laptop-class Apple Silicon chips and Graviton-class cloud instances chief among them, has become common and inexpensive enough that its suitability for this class of biomedical simulation deserves to be tested directly rather than assumed. The authors have previously argued that model-based computational workloads can be right-sized for low-cost hardware without an unacceptable accuracy penalty \cite{pramawijaya2022}; this paper asks the analogous question for cardiac electrophysiology. Can an ARM machine, local or cloud, reproduce reference torsadogenic classifications at a speed and cost that make the assay viable for research groups without dedicated high-performance computing access, including groups across Indonesia and the broader Global South.
+
+This study extends an existing research programme built around the ORd model and CiPA-based risk classification: electro-mechanical extensions of the assay \cite{heikhmakhtiar2026}, an ordinal-logistic-regression-optimized qNet scoring scheme \cite{kamanditya2024}, a GPU-accelerated simulation front end \cite{aroli2024}, machine-learning-assisted classification pilots \cite{fuadah2024}, and applications to emerging antiviral drug candidates \cite{qauli2025}. None of that prior work isolated solver choice and step size as an independent variable, and none of it tested whether the resulting classifications hold on non-x86 hardware. This paper is designed to close both gaps within a single, tightly scoped study, using the same modeling foundation as its predecessors so that its conclusions carry over directly into that broader line of work.
+
+The contribution of this paper is fourfold.
+
+\begin{enumerate}
+\item We establish a fine-step, explicit-Euler reference standard for a stratified subset of CiPA drugs spanning the high, intermediate, and low torsadogenic risk tiers, and use it to identify the step size at which solver-driven waveform drift stops being cosmetic error and starts flipping the predicted risk classification.
+\item We benchmark the resulting solver configuration, and a coarser sweep alongside it, across four hardware classes: consumer-grade x86 CPU, x86 with a discrete GPU, local Apple Silicon (ARM), and an ARM cloud instance, reporting wall-clock time, peak memory, and, where applicable, cost per completed drug simulation.
+\item We translate the combined accuracy and cost results into a concrete, citable configuration recommendation, of the form ``for this class of simulation, use solver $X$ at time step $Y$ on platform $Z$'', aimed at labs that need to decide whether they can run this class of assay at all.
+\item We extend the authors' existing ORd/CiPA research programme with a numerical-methodology lens that none of the programme's prior studies addressed directly, strengthening the reproducibility basis of that broader body of work.
+\end{enumerate}
+
+The scope is deliberately bounded. Fine-step ground truth is generated only for the stratified drug subset, not the full CiPA panel; extending the full panel to every solver and platform configuration was judged infeasible within the project timeline and is left as a secondary, time-permitting extension. The claim advanced here is about representative solver and hardware behavior for this class of simulation, not exhaustive drug-by-drug screening, and later sections return to this boundary explicitly rather than treating it as an afterthought.
+
+The remainder of the paper is organized as follows. Section II situates this work against CiPA in-silico assay literature, prior applications of the ORd model, numerical solver practice in cardiac electrophysiology, and existing work on hardware acceleration and portability in biomedical simulation, and identifies the two gaps this study is designed to close. Section III describes the ORd model and CiPA protocol, the drug stratification and ground-truth definitions, the solver configurations under comparison, the four hardware platforms, and the logging schema used to record every run. Section IV reports the ground-truth reference traces, solver accuracy as a function of step size, cross-platform runtime and memory results, and the resulting classification agreement matrix. Section V discusses where numerical accuracy breaks down, whether classification decisions are robust to the choices examined, the feasibility of commodity and ARM hardware for this workload, and the limitations that follow from the study's bounded scope. Section VI concludes with the paper's configuration recommendation.
+
+\section{Related Work}
+
+\subsection{CiPA and the Shift to In-Silico Multichannel Risk Assessment}
+
+The CiPA initiative reframed proarrhythmic safety testing around a mechanistic in-silico model rather than a single ion-channel proxy, pairing multichannel patch-clamp pharmacology with a human ventricular myocyte simulation and a net-charge biomarker, qNet, that has since become the framework's principal quantitative risk score \cite{li2017}. That reframing did not close the door on further methodological refinement of the classifier itself. Building on the same qNet foundation, an ordinal logistic regression scheme has been used to sharpen risk-tier assignment beyond a fixed-threshold cutoff \cite{kamanditya2024}, and the underlying myocyte representation has been extended from a purely electrophysiological account to an electro-mechanical one that couples electrical activity to contractile behavior \cite{heikhmakhtiar2026}. Both lines of work treat the myocyte simulation that produces qNet as fixed infrastructure and concentrate on what is done with its output. This paper inverts that emphasis: it holds the classification methodology constant and asks whether the infrastructure that produces the input, the numerical solution of the underlying ODE system, is itself trustworthy across the configurations labs actually use.
+
+\subsection{The O'Hara--Rudy Model as the Common Simulation Substrate}
+
+The O'Hara--Rudy (ORd) human ventricular action potential model \cite{ohara2011} is the computational substrate beneath essentially all of the work cited above, and beneath a large share of CiPA-adjacent research more broadly. Its role has extended well past its original validation study. A graphical, GUI-based simulator built on the ORd formulation has been developed and deployed for evaluating drug toxicity in cardiac pharmacology, with a GPU-accelerated implementation already in active use by a separate research group \cite{aroli2024}. The same model has anchored a pilot study combining electro-mechanical ventricular simulation with machine-learning-based risk classification \cite{fuadah2024}, and it has been applied outside the traditional small-molecule cardiotoxicity setting entirely, to assess the cardiac electrophysiological effects of candidate antiviral drugs proposed for mpox \cite{qauli2025}. Across all of these applications, the ORd model is treated as a numerically solved black box: a solver is chosen, a step size is set, and the resulting traces are taken as ground truth for whatever downstream question the study asks. None of them varies the solver or step size as an experimental factor in its own right, which is precisely the variable this paper isolates.
+
+\subsection{ODE Solvers and Numerical Configuration in Cardiac Electrophysiology}
+
+Cardiac electrophysiology models are numerically stiff by construction, and the discipline has long relied on adaptive, implicit multistep integrators to handle that stiffness efficiently. CVODE, distributed as part of the SUNDIALS suite of nonlinear and differential/algebraic equation solvers, is among the most widely used of these and underlies a large share of production cardiac simulation pipelines, the authors' own included \cite{hindmarsh2005}. What is comparatively well established in the broader numerical literature, that step size and integration scheme trade accuracy against runtime, and that fixed-step explicit methods are more sensitive to this trade-off than adaptive implicit ones, has not, to the authors' knowledge, been evaluated at the level of a CiPA risk-tier decision. Existing comparisons of solver behavior in cardiac models tend to report waveform-level error metrics: how far an action potential trace or a biomarker value drifts from a reference under a given configuration. A drifted biomarker value is not automatically a consequential error; it only matters, for CiPA's purposes, if it moves a drug across a classification boundary. Whether that boundary-crossing behavior exists, and at what step size it appears, is the question this paper is built to answer, and it is a question the authors have not found addressed in the CiPA in-silico literature to date.
+
+\subsection{Hardware Acceleration and Portability in Biomedical Simulation}
+
+Hardware considerations in this research programme have so far been additive rather than comparative. A GPU-accelerated implementation of the ORd-based simulator already exists and is deployed for production use \cite{aroli2024}, demonstrating that this workload benefits from parallel hardware, but that work does not benchmark GPU acceleration against alternative platform classes, nor does it address cost. Separately, the authors have shown in an unrelated computer-vision context that carefully parameterized models can be run on low-cost hardware at an acceptable accuracy penalty, an argument for treating hardware accessibility as a first-class research question rather than an implementation detail \cite{pramawijaya2022}. Neither strand has been applied to the specific question this paper asks: whether ARM hardware, running locally on a laptop-class Apple Silicon machine or remotely on a Graviton-class cloud instance, can reproduce CiPA-class torsadogenic classifications at a wall-clock time, memory footprint, and, for the cloud case, dollar cost that make the assay practical for a lab without access to an x86 workstation or a GPU node. To the authors' knowledge, no published study has benchmarked CiPA-style in-silico cardiotoxicity simulation across x86, GPU-accelerated, and ARM (local and cloud) platforms within a single, controlled comparison.
+
+\subsection{Positioning of the Present Study}
+
+Taken together, the literature above establishes a mechanistic model that is trusted, a risk metric that is actively being refined, and a solver ecosystem that is mature and widely adopted, but it leaves two questions unanswered where those three pieces meet. First, whether the numerical configuration used to solve the model, a choice made silently in most published assays, can itself change a torsadogenic risk classification. Second, whether the resulting workload, once a defensible configuration is fixed, is affordable enough on ARM hardware to extend credible screening capability to labs that cannot presently perform it. This paper answers both questions using the same ORd/CiPA modeling foundation as the authors' prior work, so that its findings integrate directly into that existing line of research rather than standing apart from it.
+
+\section*{Acknowledgment}
+[TBD: funding sources and acknowledgements, per Iga.]
+
+% ---------------------------------------------------------------------
+% References are numbered in strict order of first appearance (Sec. 13
+% of the project handoff), not alphabetically. Author initials marked
+% with a TODO below are transcribed exactly as given in the handoff
+% document, which listed collaborators by surname only; confirm full
+% given-name initials with each co-author before submission.
+% ---------------------------------------------------------------------
+\begin{thebibliography}{9}
+
+\bibitem{li2017}
+Z. Li, S. Dutta, J. Sheng, P. N. Tran, W. Wu, K. Chang, T. Mdluli, D. G. Strauss, and T. Colatsky, ``Improving the in silico assessment of proarrhythmia risk by combining hERG (human Ether-\`a-go-go-related gene) channel--drug binding kinetics and multichannel pharmacology,'' \emph{Circ. Arrhythm. Electrophysiol.}, vol. 10, no. 2, p. e004628, Feb. 2017, doi: 10.1161/CIRCEP.116.004628.
+
+\bibitem{ohara2011}
+T. O'Hara, L. Vir\'ag, A. Varr\'o, and Y. Rudy, ``Simulation of the undiseased human cardiac ventricular action potential: Model formulation and experimental validation,'' \emph{PLoS Comput. Biol.}, vol. 7, no. 5, p. e1002061, May 2011, doi: 10.1371/journal.pcbi.1002061.
+
+\bibitem{hindmarsh2005}
+A. C. Hindmarsh, P. N. Brown, K. E. Grant, S. L. Lee, R. Serban, D. E. Shumaker, and C. S. Woodward, ``SUNDIALS: Suite of nonlinear and differential/algebraic equation solvers,'' \emph{ACM Trans. Math. Softw.}, vol. 31, no. 3, pp. 363--396, Sep. 2005, doi: 10.1145/1089014.1089020.
+
+% TODO: confirm co-author given-name initials (Wibowo, Usman) before submission.
+\bibitem{pramawijaya2022}
+I. N. Pramawijaya, Wibowo, and Usman, ``Parameter investigation in low computing cost model-based EfficientDet for UAV object detection,'' in \emph{Proc. Int. Conf. Inf. Commun. Technol. (ICoICT)}, 2022.
+
+% TODO: confirm full author list, order, and given-name initials (handoff lists surnames + "et al.") before submission.
+\bibitem{heikhmakhtiar2026}
+Heikhmakhtiar, Qauli, Fu'adah, Pramudito, I. N. Pramawijaya, \emph{et al.}, ``Drug induced TdP risks classification assay using electro-mechanical models of human ventricle based on CiPA framework,'' \emph{Toxicol. Res.}, vol. 42, no. 2, pp. 217--233, 2026.
+
+% TODO: confirm given-name initials before submission.
+\bibitem{kamanditya2024}
+Kamanditya, Qauli, Marcellinus, I. N. Pramawijaya, and Lim, ``Optimized qNet for torsadogenic drug risk classification via in silico simulation and ordinal logistic regression,'' in \emph{Proc. KSME Conf.}, 2024, p. 113.
+
+% TODO: confirm given-name initials before submission.
+\bibitem{aroli2024}
+Aroli, Qauli, I. N. Pramawijaya, Hanum, and Lim, ``CardioSim: A graphical user interface-based simulator for evaluating drug toxicity in cardiac pharmacology,'' in \emph{Proc. KSME Conf.}, 2024, p. 106.
+
+% TODO: confirm given-name initials before submission.
+\bibitem{fuadah2024}
+Fuadah, Pramudito, I. N. Pramawijaya, Marcellinus, and Lim, ``A pilot study of in-silico human electro-mechanical ventricular model for drug induced TdP risk assessment with machine learning,'' in \emph{Proc. KSME Conf.}, 2024, p. 95.
+
+% TODO: confirm given-name initials before submission.
+\bibitem{qauli2025}
+Qauli, I. N. Pramawijaya, and Lim, ``The effect of MPOXV candidate drugs (ribavirin and mitoxantrone) on cardiac electrophysiology: An in silico assay using the ORd ventricular cell model,'' in \emph{Proc. KSME Conf.}, 2025, p. 101.
+
+\end{thebibliography}
+
+\end{document}
