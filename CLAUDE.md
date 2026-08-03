@@ -2,8 +2,8 @@
 
 **Prepared for:** AI agent / collaborator continuing manuscript drafting
 **Principal investigator:** Iga Narendra Pramawijaya (Telkom University / Universitas Telkom, Bandung)
-**Status:** Scope locked. Experiments not yet run. Manuscript not yet started.
-**Handoff date:** 21 July 2026
+**Status:** Scope locked. Experiments not yet run. External literature search complete (2 Aug 2026) — see Section 8.1. Manuscript drafting in progress (Introduction, Related Work, Methodology written; Results/Discussion pending data).
+**Handoff date:** 21 July 2026 (updated 3 Aug 2026 with literature search results)
 
 ---
 
@@ -115,7 +115,44 @@ The last two fields are the paper's headline. Everything else is supporting evid
 - Qauli, **Pramawijaya**, Lim. "The effect of MPOXV candidate drugs (Ribavirin and Mitoxantrone) on Cardiac Electrophysiology: an in silico assay using the ORd ventricular cell model." KSME, 101, 2025.
 - **Pramawijaya**, Wibowo, Usman. "Parameter Investigation in Low Computing Cost Model-Based EfficientDet for UAV Object Detection." ICoICT 2022. *(Supports the low-cost-computing framing in the Introduction.)*
 
-External literature still to be gathered: O'Hara et al. 2011 (ORd model), Li et al. on CiPA/qNet, SUNDIALS/CVODE (Hindmarsh et al. 2005), plus any prior work on numerical sensitivity in cardiac electrophysiology simulation. **Search for the latter specifically** — if someone has already done this, the framing must shift toward the hardware/cost angle.
+Core framework citations already secured: O'Hara et al. 2011 (ORd model), Li et al. 2017 on CiPA/qNet, SUNDIALS/CVODE (Hindmarsh et al. 2005).
+
+---
+
+## 8.1 External literature (gathered, ready to cite)
+
+**Literature search completed 2 Aug 2026 — result: the gap is confirmed open.** No existing paper benchmarks CiPA/ORd torsadogenic risk classification across solver choice *and* ARM/low-cost hardware together. This protects the novelty claim. The closest work benchmarks solvers or hardware separately, and only on non-ARM HPC/GPU targets. All nine load-bearing/near-load-bearing sources below have already been integrated into `main.tex` (Introduction, Related Work, Methods, References); the rest are optional depth, not yet cited.
+
+Organized by the role each cluster plays in the manuscript. DOIs/URLs included so the drafting agent can pull full bibliographic detail (some author lists were not fully visible in search snippets — verify before final submission; every new `\bibitem` in `main.tex` is flagged with a `% TODO` comment for this).
+
+**A. CiPA framework and qNet foundation** (supplements Section 8's author-list; used in Introduction/Related Work — already covered by existing li2017/ohara2011 citations, not separately added)
+1. Li, Z., et al., "Improving the In Silico Assessment of Proarrhythmia Risk by Combining hERG (Human Ether-à-go-go-Related Gene) Channel–Drug Binding Kinetics and Multichannel Pharmacology," *Circulation: Arrhythmia and Electrophysiology*, 2019 — likely the same paper already cited as `li2017` (Feb 2017, e004628); year discrepancy in search snippet, not re-added.
+2. "Introduction to in silico model for proarrhythmic risk assessment under the CiPA initiative," *Translational and Clinical Pharmacology*, 27(1), 2019. doi:10.12793/tcp.2019.27.1.12 — optional depth, not yet cited.
+3. Yang, P.C., et al., "A computational pipeline to predict cardiotoxicity: From the atom to the rhythm," *Circulation Research*, 2020 — reserved for Discussion (not yet drafted); not yet cited.
+
+**B. Solver/numerical-method sensitivity in biological/ODE simulation** (Introduction + Methods — cited as `benchmarking2021` and `eulerprecision2013`)
+4. "Benchmarking of numerical integration methods for ODE models of biological systems," *Scientific Reports*, 11, 2021. doi:10.1038/s41598-021-82196-2 — **strongest single citation for this paper.** Cited in Introduction (framing the reproducibility gap) and Related Work Sec. II-C.
+5. "The most precise computations using Euler's method in standard floating-point arithmetic applied to modelling of biological systems," *Computer Methods and Programs in Biomedicine*, 2013. doi:10.1016/j.cmpb.2013.03.014 — cited in Methods Phase 1, justifying fine-step explicit Euler as ground truth.
+6. Krishnapriyan et al. / stiff-ODE convergence literature — optional, cite only if reviewers push back on why CVODE is needed alongside Euler. Not yet cited.
+7. Rackauckas et al. (SciML notes on stiffness) — optional background citation for a formal stiffness definition in Methods, if the venue expects one. Not yet cited.
+
+**C. Hardware acceleration precedent in cardiac electrophysiology** (Related Work Sec. II-D — cited as `bartocci2015`, `sachetto2025`, `marinsdelima2025`, `torchcor2025`)
+8. Sachetto Oliveira, R., et al., "Toward cardiac electrophysiology digital twins with an efficient open source scalable solver on GPU clusters," *Scientific Reports*, 2025. doi:10.1038/s41598-025-33709-w — MonoAlg3D; ~6.6× GPU speedup, uses O'Hara–Rudy family model directly; structural template for Table 3/4.
+9. Marins de Lima, L., Sachetto Oliveira, R., Campos, F., Arantes Berg, L., Oliveira Campos, J. de, Weber dos Santos, R., "Benchmarking Open Cardiac Electrophysiology Simulators: MonoAlg3D and OpenCARP," *2025 Computing in Cardiology (CinC)*. doi:10.22489/cinc.2025.376 — direct methodological template; mirror their normalized-runtime approach in Table 4.
+10. Bartocci, E., et al. (or equivalent), "GPU accelerated solver for nonlinear reaction–diffusion systems. Application to the electrophysiology problem," 2015. doi:10.1016/j.cpc.2015.07.024 — ~164× ODE-solver acceleration; foundational "hardware matters" citation.
+11. "Toward GPGPU accelerated human electromechanical cardiac simulations," *PMC*, 2014. PMC4016759 — same 164× figure, human left-ventricle scale; optional companion to #10, not yet cited.
+12. "An Adaptive Step Size GPU ODE Solver for Simulating the Electric Cardiac Activity," ResearchGate 228443905 — optional, not yet cited.
+13. Bartocci, E., "Simulating Cardiac Electrophysiology in the Era of GPU-Cluster Computing," ResearchGate 259480066 — optional, not yet cited.
+14. "TorchCor: High-Performance Cardiac Electrophysiology Simulations with the Finite Element Method on GPUs," arXiv:2510.12011, 2025 — cited in Introduction (accessibility argument, paraphrased not quoted).
+
+**D. Verification/validation methodology for regulatory-adjacent in-silico models** (Methods — cited as `invitro2020`)
+15. "In silico trials: Verification, validation and uncertainty quantification of predictive models used in the regulatory evaluation of biomedical products," *Progress in Biophysics and Molecular Biology*, 2020. doi:10.1016/j.pbiomolbio.2019.09.001 — frames Phase 1/2 as calculation verification, not just benchmarking.
+
+**E. ARM / low-cost hardware for scientific and HPC workloads** (Introduction/Related Work — cited as `armhpc2023`, `awsgraviton`)
+16. "Are we ready for broader adoption of ARM in the HPC?," NSF PAR, 10404023 — direct academic framing of the ARM angle.
+17. AWS, "AWS Graviton Processors for HPC workloads" — supporting/informal citation for price-performance claims; verify current figures at time of writing.
+
+> **Citation count:** `main.tex` now carries 22 references total (13 original + 9 newly integrated from this list: items 4, 5, 8, 9, 10, 14, 15, 16, 17). Items 1–3, 6, 7, 11–13 remain optional depth and are not yet in the bibliography.
 
 ---
 
